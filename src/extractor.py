@@ -46,7 +46,10 @@ def extract_elements(page):
 
         document.querySelectorAll('button, a.btn, [role="button"], input[type="submit"], input[type="button"]').forEach(el => pushRect(el, {CLASSES['button']}));
         document.querySelectorAll('input:not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea, select').forEach(el => pushRect(el, {CLASSES['input']}));
-        document.querySelectorAll('img, svg').forEach(el => pushRect(el, {CLASSES['image']}));
+        
+        // なぜ: SVGを通常の画像(img)から分離し、専用のロゴクラスとして学習させるため
+        document.querySelectorAll('img').forEach(el => pushRect(el, {CLASSES['image']}));
+        document.querySelectorAll('svg').forEach(el => pushRect(el, {CLASSES['logo']}));
 
         return data;
     }}""")
