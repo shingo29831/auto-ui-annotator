@@ -2,7 +2,7 @@
 from src.config import CLASSES, VIEWPORT_WIDTH, VIEWPORT_HEIGHT
 
 def extract_elements(page):
-    # なぜ: JS側で各要素をカテゴリ分けし、YOLOのクラスIDとともに座標を返すため
+    # なぜ: JS側で各要素をカテゴリ分けし、YOLOのクラスIDと要素の一意なハッシュ、座標を返すため
     return page.evaluate(f"""() => {{
         const data = [];
         const pushRect = (el, classId) => {{
@@ -12,7 +12,26 @@ def extract_elements(page):
                 const y_center = (rect.y + rect.height / 2) / {VIEWPORT_HEIGHT};
                 const width = rect.width / {VIEWPORT_WIDTH};
                 const height = rect.height / {VIEWPORT_HEIGHT};
-                data.push({{ class_id: classId, x: x_center, y: y_center, w: width, h: height }});
+                
+                // なぜ: 同一サイト内の全く同じUI(ヘッダーのボタンなど)を弾くためのハッシュ生成
+                const tag = el.tagName || '';
+                // SVGなどはclassNameがオブジェクトになる場合があるため型を検証
+                const classes = typeof el.className === 'string' ? el.className : '';
+                const text = (el.textContent || '').trim().substring(0, 50);
+                const src = el.src || '';
+                const type = el.type || '';
+                const w = Math.round(rect.width);
+                const h = Math.round(rect.height);
+                const elementHash = `${{tag}}|${{classes}}|${{w}}x${{h}}|${{text}}|${{src}}|${{type}}`;
+
+                data.push({{ 
+                    class_id: classId, 
+                    x: x_center, 
+                    y: y_center, 
+                    w: width, 
+                    h: height,
+                    hash: elementHash
+                }});
             }}
         }};
 

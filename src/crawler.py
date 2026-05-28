@@ -29,6 +29,7 @@ def auto_scroll(page):
 def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
     queue = [start_url]
     page_count = 0
+    seen_element_hashes = set() # なぜ: サイト内で重複するUI要素を記録し過学習を防ぐため
 
     with sync_playwright() as p:
         browser = p.firefox.launch(headless=True)
@@ -54,18 +55,37 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                     auto_scroll(page)
                     page.wait_for_timeout(1000) # なぜ: 最終的なアニメーションやレイアウトの再計算を待つため
                     
-                    # 修正点: 先に要素を抽出し、0個であればリトライする
-                    elements = extract_elements(page)
+                    raw_elements = extract_elements(page)
                     
-                    if len(elements) == 0:
+                    if len(raw_elements) == 0:
                         print(f"  -> [警告] 抽出要素0個。レンダリング遅延の可能性のため再試行 (試行 {attempt + 1}/{MAX_RETRIES})")
                         if attempt < MAX_RETRIES - 1:
-                            page.wait_for_timeout(2000) # なぜ: JSの実行や遅延ロードを少し待ってからリトライするため
+                            page.wait_for_timeout(2000)
                             continue
                     
+                    # なぜ: 過去に同一サイト内で取得したことのない新規要素のみをフィルタリングするため
+                    unique_elements = []
+                    for el in raw_elements:
+                        if el['hash'] not in seen_element_hashes:
+                            unique_elements.append(el)
+                            seen_element_hashes.add(el['hash'])
+                    
+                    # なぜ: 重複排除の結果、新規要素が0個になった場合は画像を保存せずストレージを節約するため
+                    if len(unique_elements) == 0:
+                        print("  -> [スキップ] 新規のUI要素が見つかりませんでした。画像の保存をスキップします。")
+                        url_manager.mark_as_visited(current_url)
+                        
+                        hrefs = page.evaluate("() => Array.from(document.querySelectorAll('a[href]')).map(a => a.href)")
+                        for href in hrefs:
+                            full_url = urljoin(current_url, href)
+                            if url_manager.is_valid_url(start_url, full_url) and not url_manager.is_visited(full_url):
+                                queue.append(full_url)
+                                
+                        success = True
+                        break
+
                     page.evaluate("document.body.style.overflow = 'hidden';")
                     
-                    # なぜ: 複数サイトのスクレイピングを中断・再開した際、ファイル名が衝突するのを防ぐため
                     timestamp = int(time.time() * 1000)
                     base_filename = f"scraped_{timestamp}_{page_count:05d}"
                     img_path = os.path.join(OUTPUT_IMG_DIR, f"{base_filename}.jpg")
@@ -74,10 +94,10 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                     page.screenshot(path=img_path, type="jpeg", quality=90)
                     
                     with open(lbl_path, "w", encoding="utf-8") as f:
-                        for el in elements:
+                        for el in unique_elements:
                             f.write(f"{el['class_id']} {el['x']:.6f} {el['y']:.6f} {el['w']:.6f} {el['h']:.6f}\n")
                             
-                    print(f"  -> {len(elements)} 個の要素を抽出しました。")
+                    print(f"  -> {len(unique_elements)} 個の新規要素を抽出しました (総抽出:{len(raw_elements)} 重複排除:{len(raw_elements)-len(unique_elements)})")
                     url_manager.mark_as_visited(current_url)
                     
                     hrefs = page.evaluate("() => Array.from(document.querySelectorAll('a[href]')).map(a => a.href)")
@@ -95,7 +115,6 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                     
             if not success:
                 print(f"  -> [失敗] {MAX_RETRIES}回の試行に失敗しました: {current_url}")
-                # なぜ: 404など永続的なエラーの場合、次回以降の実行で無限にスタックしないようにするため
                 url_manager.mark_as_visited(current_url)
 
         browser.close()
