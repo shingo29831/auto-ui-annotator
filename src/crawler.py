@@ -7,25 +7,6 @@ from src.config import VIEWPORT_WIDTH, VIEWPORT_HEIGHT, OUTPUT_IMG_DIR, OUTPUT_L
 from src.extractor import extract_elements
 from src.url_manager import UrlManager
 
-def auto_scroll(page):
-    # なぜ: 動的コンテンツ（遅延読み込み画像や無限スクロール要素）をレンダリングさせるため
-    page.evaluate("""() => {
-        return new Promise((resolve) => {
-            let totalHeight = 0;
-            const distance = 100;
-            const timer = setInterval(() => {
-                const scrollHeight = document.body.scrollHeight;
-                window.scrollBy(0, distance);
-                totalHeight += distance;
-                if(totalHeight >= scrollHeight - window.innerHeight){
-                    clearInterval(timer);
-                    window.scrollTo(0, 0); // なぜ: 固定ヘッダーのズレを防ぎスクリーンショットを正常化するため上部に戻す
-                    resolve();
-                }
-            }, 100);
-        });
-    }""")
-
 def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
     queue = [start_url]
     page_count = 0
@@ -49,20 +30,35 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
             success = False
             for attempt in range(MAX_RETRIES):
                 try:
-                    # なぜ: 完全にDOMが構築され通信が落ち着くまで待機するため
                     page.goto(current_url, wait_until="networkidle")
                     
-                    auto_scroll(page)
-                    page.wait_for_timeout(1000) 
+                    # なぜ: 動的コンテンツや遅延読み込み画像を確実に描画させるため、一度最下部までスクロールする
+                    page.evaluate("""() => {
+                        return new Promise((resolve) => {
+                            let totalHeight = 0;
+                            const distance = 500;
+                            const timer = setInterval(() => {
+                                window.scrollBy(0, distance);
+                                totalHeight += distance;
+                                if(totalHeight >= document.body.scrollHeight){
+                                    clearInterval(timer);
+                                    window.scrollTo(0, 0); // 上部に戻す
+                                    resolve();
+                                }
+                            }, 100);
+                        });
+                    }""")
+                    page.wait_for_timeout(1000)
                     
-                    page.evaluate("document.body.style.overflow = 'hidden';")
+                    # なぜ: スクリーンショットにOSのスクロールバーが写り込んでノイズになるのを防ぐため
+                    page.add_style_tag(content="::-webkit-scrollbar { display: none !important; } * { scrollbar-width: none !important; }")
                     
-                    # なぜ: 同じページでライトモードとダークモードの2回スクリーンショットと要素抽出を行うため
+                    total_height = page.evaluate("document.body.scrollHeight")
+                    if total_height == 0:
+                        total_height = VIEWPORT_HEIGHT
+                    
                     for theme in ["light", "dark"]:
-                        # なぜ: OS設定に依存するネイティブのメディアクエリ (prefers-color-scheme) を上書きするため
                         page.emulate_media(color_scheme=theme)
-                        
-                        # なぜ: クラスや属性でテーマを管理するモダンなUIフレームワークに強制対応させるため
                         page.evaluate(f"""(currentTheme) => {{
                             if (currentTheme === 'dark') {{
                                 document.documentElement.classList.add('dark');
@@ -72,41 +68,46 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                                 document.documentElement.setAttribute('data-theme', 'light');
                             }}
                         }}""", theme)
-                        
-                        # なぜ: CSSのアニメーションやトランジションが完了するのを待つため
                         page.wait_for_timeout(1000)
                         
-                        raw_elements = extract_elements(page)
+                        current_y = 0
+                        screen_index = 0
                         
-                        if len(raw_elements) == 0:
-                            print(f"  -> [{theme}] [警告] 抽出要素0個。レンダリング遅延の可能性あり")
-                            continue
-                        
-                        unique_elements = []
-                        for el in raw_elements:
-                            # なぜ: 同じ形状でもテーマが違えば色が変わるため、テーマをハッシュに含めて重複排除を回避するため
-                            theme_hash = f"{theme}|{el['hash']}"
-                            if theme_hash not in seen_element_hashes:
-                                unique_elements.append(el)
-                                seen_element_hashes.add(theme_hash)
-                        
-                        if len(unique_elements) == 0:
-                            print(f"  -> [{theme}] [スキップ] 新規のUI要素なし")
-                            continue
-                        
-                        timestamp = int(time.time() * 1000)
-                        # なぜ: ファイル名にテーマ名を含めてデータセット内の混同を防ぐため
-                        base_filename = f"scraped_{timestamp}_{theme}_{page_count:05d}"
-                        img_path = os.path.join(OUTPUT_IMG_DIR, f"{base_filename}.jpg")
-                        lbl_path = os.path.join(OUTPUT_LBL_DIR, f"{base_filename}.txt")
-                        
-                        page.screenshot(path=img_path, type="jpeg", quality=90, full_page=True)
-                        
-                        with open(lbl_path, "w", encoding="utf-8") as f:
-                            for el in unique_elements:
-                                f.write(f"{el['class_id']} {el['x']:.6f} {el['y']:.6f} {el['w']:.6f} {el['h']:.6f}\n")
+                        # なぜ: 32767pxの画像上限エラーを防ぎ、YOLOのアスペクト比を維持するため、画面(ビューポート)単位で区切って取得する
+                        while current_y < total_height:
+                            page.evaluate(f"window.scrollTo(0, {current_y})")
+                            page.wait_for_timeout(500) # スクロールのアニメーションや固定ヘッダーの安定を待機
+                            
+                            raw_elements = extract_elements(page)
+                            unique_elements = []
+                            
+                            for el in raw_elements:
+                                theme_hash = f"{theme}|{el['hash']}"
+                                if theme_hash not in seen_element_hashes:
+                                    unique_elements.append(el)
+                                    seen_element_hashes.add(theme_hash)
+                            
+                            if len(unique_elements) > 0:
+                                timestamp = int(time.time() * 1000)
+                                base_filename = f"scraped_{timestamp}_{theme}_{page_count:05d}_{screen_index:02d}"
+                                img_path = os.path.join(OUTPUT_IMG_DIR, f"{base_filename}.jpg")
+                                lbl_path = os.path.join(OUTPUT_LBL_DIR, f"{base_filename}.txt")
                                 
-                        print(f"  -> [{theme}] {len(unique_elements)} 個の新規要素を抽出しました")
+                                # なぜ: full_page=Falseにより、現在見えているビューポートのみを安全に撮影する
+                                page.screenshot(path=img_path, type="jpeg", quality=90, full_page=False)
+                                
+                                with open(lbl_path, "w", encoding="utf-8") as f:
+                                    for el in unique_elements:
+                                        f.write(f"{el['class_id']} {el['x']:.6f} {el['y']:.6f} {el['w']:.6f} {el['h']:.6f}\n")
+                                        
+                                print(f"  -> [{theme} 領域{screen_index}] {len(unique_elements)} 個の新規要素を抽出")
+                            
+                            current_y += VIEWPORT_HEIGHT
+                            screen_index += 1
+                            
+                            # なぜ: 無限スクロールのバグ等による無限ループを強制遮断するため(上限50画面)
+                            if screen_index > 50:
+                                break
 
                     url_manager.mark_as_visited(current_url)
                     
@@ -128,4 +129,4 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                 url_manager.mark_as_visited(current_url)
 
         browser.close()
-        print(f"\n完了: {start_url} から合計 {page_count} ページを処理しました。")
+        print(f"\n完了: {start_url} から監視ループへ移行します。")
