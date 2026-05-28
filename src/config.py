@@ -18,9 +18,6 @@ TIMEOUT_MS = 15000
 MAX_RETRIES = 3
 
 MAX_CONCURRENT_SITES = int(os.getenv('MAX_CONCURRENT_SITES', 3))
-BALANCER_TARGET_LIMIT = int(os.getenv('BALANCER_TARGET_LIMIT', 5000))
-
-# なぜ: 同一サイトからの過剰な収集を防ぎ「浅く広く」学習させるため、ドメインごとのページ上限を絞る
 MAX_PAGES_PER_DOMAIN = int(os.getenv('MAX_PAGES_PER_DOMAIN', 10))
 
 CLASSES = {

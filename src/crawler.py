@@ -21,7 +21,6 @@ async def crawl_site(start_url: str, url_manager: UrlManager, balancer: DatasetB
         if url_manager.is_visited(current_url):
             continue
             
-        # なぜ: キューに残っていても、並行ワーカー等によってドメイン上限に達していた場合は即座に破棄するため
         if not url_manager.can_visit_domain(current_url):
             domain = urlparse(current_url).netloc
             print(f"[Worker] スキップ: {domain} はドメインごとの収集上限に達しました")
@@ -101,7 +100,7 @@ async def crawl_site(start_url: str, url_manager: UrlManager, balancer: DatasetB
                                 balancer.register(raw_elements)
                                 print(f"  -> [{theme} 領域{screen_index}] 保存完了 ({len(raw_elements)}要素) | 統計: {balancer.get_stats()}")
                             else:
-                                print(f"  -> [{theme} 領域{screen_index}] スキップ: 頻出要素のみで構成された画面です")
+                                print(f"  -> [{theme} 領域{screen_index}] スキップ: 希少要素がなく頻出要素ばかりの画面です")
                         
                         await restore_hidden_elements(page)
                         
@@ -114,7 +113,6 @@ async def crawl_site(start_url: str, url_manager: UrlManager, balancer: DatasetB
 
                 url_manager.mark_as_visited(current_url)
                 
-                # なぜ: まだドメイン上限に達していない場合のみ、次のリンクをキューに追加する
                 if url_manager.can_visit_domain(start_url):
                     hrefs = await page.evaluate("() => Array.from(document.querySelectorAll('a[href]')).map(a => a.href)")
                     for href in hrefs:

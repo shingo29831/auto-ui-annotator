@@ -2,7 +2,7 @@
 import asyncio
 import sys
 from playwright.async_api import async_playwright
-from src.config import TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_PER_DOMAIN, MAX_CONCURRENT_SITES, BALANCER_TARGET_LIMIT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT
+from src.config import TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_PER_DOMAIN, MAX_CONCURRENT_SITES, VIEWPORT_WIDTH, VIEWPORT_HEIGHT
 from src.url_manager import UrlManager
 from src.balancer import DatasetBalancer
 from src.crawler import crawl_site
@@ -10,7 +10,6 @@ from src.crawler import crawl_site
 async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, balancer: DatasetBalancer, context):
     while True:
         url = await queue.get()
-        # なぜ: 監視プロセスのキューに追加されてから実際に処理が始まる間に、別ワーカーによってドメイン上限に達する可能性があるため最終確認する
         if not url_manager.can_visit_domain(url):
             print(f"[Worker-{worker_id}] スキップ: {url} (ドメイン上限到達済み)")
             queue.task_done()
@@ -26,7 +25,7 @@ async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, 
 
 async def async_main():
     url_manager = UrlManager(TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_PER_DOMAIN)
-    balancer = DatasetBalancer(BALANCER_TARGET_LIMIT)
+    balancer = DatasetBalancer()
     queue = asyncio.Queue()
     enqueued_urls = set()
     
