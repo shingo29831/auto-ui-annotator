@@ -18,7 +18,7 @@ VIEWPORT_HEIGHT = 720
 TIMEOUT_MS = 15000
 MAX_RETRIES = 3
 
-# なぜ: 形状が異なる要素を同じクラスに混ぜるとYOLOの精度が下がるため、タイプ別に細分化して定義
+# なぜ: 多種多様なUIコンポーネントを網羅的に学習・分析できるようにするため
 CLASSES = {
     "button": 0,
     "text_input": 1,
@@ -30,7 +30,18 @@ CLASSES = {
     "image": 7,
     "logo": 8,
     "icon": 9,
-    "link": 10
+    "link": 10,
+    "tab": 11,
+    "table": 12,
+    "spinner": 13,
+    "badge": 14,
+    "heading": 15,
+    "modal": 16,
+    "tooltip": 17,
+    "breadcrumb": 18,
+    "pagination": 19,
+    "video": 20,
+    "iframe": 21
 }
 
 os.makedirs(OUTPUT_IMG_DIR, exist_ok=True)
