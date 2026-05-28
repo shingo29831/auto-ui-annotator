@@ -4,10 +4,9 @@ import sys
 from playwright.async_api import async_playwright
 from src.config import TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_PER_DOMAIN, MAX_CONCURRENT_SITES, VIEWPORT_WIDTH, VIEWPORT_HEIGHT
 from src.url_manager import UrlManager
-from src.balancer import DatasetBalancer
 from src.crawler import crawl_site
 
-async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, balancer: DatasetBalancer, context):
+async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, context):
     while True:
         url = await queue.get()
         if not url_manager.can_visit_domain(url):
@@ -17,7 +16,8 @@ async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, 
 
         print(f"\n[Worker-{worker_id}] 新しいターゲットのスクレイピングを開始: {url}")
         try:
-            await crawl_site(url, url_manager, balancer, context)
+            # なぜ: crawler内でドメインごとに独立したバランサーが生成されるため引数から除外
+            await crawl_site(url, url_manager, context)
         except Exception as e:
             print(f"[Worker-{worker_id}] 予期せぬエラー: {e}")
         finally:
@@ -25,7 +25,6 @@ async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, 
 
 async def async_main():
     url_manager = UrlManager(TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_PER_DOMAIN)
-    balancer = DatasetBalancer()
     queue = asyncio.Queue()
     enqueued_urls = set()
     
@@ -37,7 +36,7 @@ async def async_main():
         context = await browser.new_context(viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT})
         
         workers = [
-            asyncio.create_task(worker(i, queue, url_manager, balancer, context))
+            asyncio.create_task(worker(i, queue, url_manager, context))
             for i in range(MAX_CONCURRENT_SITES)
         ]
         

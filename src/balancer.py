@@ -1,4 +1,4 @@
-# AI-ROLE: データセット全体のクラス分布を動的に監視し、希少要素の積極的収集と頻出要素の過学習防止を担うモジュール
+# AI-ROLE: サイト(ドメイン)ごとのデータセットのクラス分布を動的に監視し、希少要素の積極的収集と頻出要素の過学習防止を担うモジュール
 from src.config import CLASSES
 
 class DatasetBalancer:
@@ -10,14 +10,17 @@ class DatasetBalancer:
         if not elements:
             return False
             
-        # なぜ: 学習初期段階は分布の基準となるデータ自体が不足しているため無条件で収集して統計の基礎を作る
-        if self.total_elements < 1000:
+        # なぜ: サイト単位での評価となるため、閾値を大幅に下げて「最初の1〜2画面分」だけをサイト内統計の基礎として無条件収集する
+        if self.total_elements < 150:
             return True
 
         total_in_page = len(elements)
         avg_count = self.total_elements / len(self.counts)
         
-        # なぜ: クラスごとの取得数の相対的な割合から「希少(レア)」と「頻出(コモン)」のボーダーラインを動的に決定するため
+        # なぜ: 学習初期に平均値が低すぎることで生じる誤判定を防ぐため、平均値の最低ラインを設定
+        if avg_count < 5:
+            avg_count = 5
+            
         rare_threshold = avg_count * 0.5
         common_threshold = avg_count * 1.5
 
@@ -31,11 +34,11 @@ class DatasetBalancer:
             elif current > common_threshold:
                 common_count += 1
 
-        # なぜ: 割合として少ないUI(カレンダーやチャート等)が含まれるページは、全体のバランスを整えるため最優先で保存する
+        # そのサイト内において希少な要素が1つでもあれば保存
         if rare_count > 0:
             return True
             
-        # なぜ: 希少な要素が一切なく、ボタンやリンク等の超頻出要素ばかりで構成された画面を弾いて過学習とストレージ圧迫を防ぐため
+        # そのサイト内において超頻出要素(ヘッダーのリンクなど)が画面の80%以上を占める場合はスキップ
         if (common_count / total_in_page) > 0.8:
             return False
             
@@ -47,7 +50,6 @@ class DatasetBalancer:
             self.total_elements += 1
 
     def get_stats(self) -> str:
-        # なぜ: ログ上で現在の「最も多いクラス」と「最も少ないクラス」の差を可視化し、バランサーの稼働状況を確認しやすくするため
         sorted_counts = sorted(self.counts.items(), key=lambda x: x[1])
         rarest = f"Min(ID{sorted_counts[0][0]}:{sorted_counts[0][1]})"
         most_common = f"Max(ID{sorted_counts[-1][0]}:{sorted_counts[-1][1]})"
