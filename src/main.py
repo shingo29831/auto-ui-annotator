@@ -6,7 +6,7 @@ from src.config import TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_PER_DOMAIN
 from src.url_manager import UrlManager
 from src.crawler import crawl_site
 
-async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, context):
+async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, global_visual_counts: dict, context):
     while True:
         url = await queue.get()
         if not url_manager.can_visit_domain(url):
@@ -16,8 +16,7 @@ async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, 
 
         print(f"\n[Worker-{worker_id}] 新しいターゲットのスクレイピングを開始: {url}")
         try:
-            # なぜ: crawler内でドメインごとに独立したバランサーが生成されるため引数から除外
-            await crawl_site(url, url_manager, context)
+            await crawl_site(url, url_manager, global_visual_counts, context)
         except Exception as e:
             print(f"[Worker-{worker_id}] 予期せぬエラー: {e}")
         finally:
@@ -25,6 +24,10 @@ async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, 
 
 async def async_main():
     url_manager = UrlManager(TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_PER_DOMAIN)
+    
+    # なぜ: 複数ワーカー(サイト)にまたがって、過去に出会ったUIの色やサイズを記録するグローバル共有辞書
+    global_visual_counts = {} 
+    
     queue = asyncio.Queue()
     enqueued_urls = set()
     
@@ -36,7 +39,7 @@ async def async_main():
         context = await browser.new_context(viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT})
         
         workers = [
-            asyncio.create_task(worker(i, queue, url_manager, context))
+            asyncio.create_task(worker(i, queue, url_manager, global_visual_counts, context))
             for i in range(MAX_CONCURRENT_SITES)
         ]
         

@@ -8,12 +8,12 @@ from src.extractor import extract_elements, restore_hidden_elements
 from src.url_manager import UrlManager
 from src.balancer import DatasetBalancer
 
-async def crawl_site(start_url: str, url_manager: UrlManager, context):
+async def crawl_site(start_url: str, url_manager: UrlManager, global_visual_counts: dict, context):
     queue = [start_url]
     seen_element_hashes = set() 
     
-    # なぜ: 別のサイトでの取得割合が現在のサイトの収集に影響(過剰なスキップ等)を与えないようにするため、ドメインごとにバランサーをリセットする
-    balancer = DatasetBalancer()
+    # なぜ: ドメイン特有の偏りを管理しつつ、全ワーカーで共有される色・サイズのグローバル辞書を参照させるため
+    balancer = DatasetBalancer(global_visual_counts)
 
     page = await context.new_page()
     page.set_default_timeout(TIMEOUT_MS)
@@ -88,7 +88,6 @@ async def crawl_site(start_url: str, url_manager: UrlManager, context):
                                 seen_element_hashes.add(el['hash'])
                         
                         if has_new_in_site:
-                            # サイトごとのバランサーに問い合わせ
                             if balancer.should_keep(raw_elements):
                                 timestamp = int(time.time() * 1000)
                                 base_filename = f"scraped_{timestamp}_{theme}_{screen_index:02d}"
@@ -102,9 +101,9 @@ async def crawl_site(start_url: str, url_manager: UrlManager, context):
                                         f.write(f"{el['class_id']} {el['x']:.6f} {el['y']:.6f} {el['w']:.6f} {el['h']:.6f}\n")
                                 
                                 balancer.register(raw_elements)
-                                print(f"  -> [{theme} 領域{screen_index}] 保存完了 ({len(raw_elements)}要素) | サイト内統計: {balancer.get_stats()}")
+                                print(f"  -> [{theme} 領域{screen_index}] 保存完了 ({len(raw_elements)}要素) | {balancer.get_stats()}")
                             else:
-                                print(f"  -> [{theme} 領域{screen_index}] スキップ: このサイト内で既に十分に収集済みの要素ばかりです")
+                                print(f"  -> [{theme} 領域{screen_index}] スキップ: 見慣れた色・形の頻出要素ばかりの画面です")
                         
                         await restore_hidden_elements(page)
                         

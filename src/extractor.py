@@ -1,7 +1,6 @@
 # AI-ROLE: ブラウザ上のDOMから指定されたUI要素の座標を抽出し、YOLO形式に変換するモジュール(非同期版)
 from src.config import CLASSES
 
-# なぜ: Playwrightの非同期API(asyncio)の仕様に適合させるため関数をasync化
 async def extract_elements(page):
     return await page.evaluate(f"""() => {{
         const data = [];
@@ -31,7 +30,36 @@ async def extract_elements(page):
                     const origH = Math.round(rect.height);
                     const elementHash = `${{tag}}|${{classes}}|${{origW}}x${{origH}}|${{text}}|${{src}}|${{type}}`;
 
-                    data.push({{ class_id: classId, x: x_center, y: y_center, w: w, h: h, hash: elementHash }});
+                    // なぜ: 今まで収集した要素と「見た目が大きく違うか」を判定するため、色とサイズを丸めて(量子化)視覚的特徴ハッシュを生成する
+                    const computed = window.getComputedStyle(el);
+                    
+                    const quantizeColor = (colorStr) => {{
+                        const match = colorStr.match(/\d+/g);
+                        if (!match || match.length < 3) return 'transparent';
+                        // なぜ: RGB成分を大まかに丸める(32刻み)ことで、わずかな色の違い(近しい色)を同一視し、大きく違う色をレア要素として分類するため
+                        const r = Math.round(parseInt(match[0]) / 32) * 32;
+                        const g = Math.round(parseInt(match[1]) / 32) * 32;
+                        const b = Math.round(parseInt(match[2]) / 32) * 32;
+                        return `${{r}},${{g}},${{b}}`;
+                    }};
+                    
+                    const bgColor = quantizeColor(computed.backgroundColor);
+                    const textColor = quantizeColor(computed.color);
+                    // なぜ: 10pxの誤差などは「近しい形状」として同一視するため、サイズを20px単位で丸める
+                    const approxW = Math.round(origW / 20) * 20;
+                    const approxH = Math.round(origH / 20) * 20;
+                    
+                    const visualHash = `${{classId}}|${{bgColor}}|${{textColor}}|${{approxW}}x${{approxH}}`;
+
+                    data.push({{ 
+                        class_id: classId, 
+                        x: x_center, 
+                        y: y_center, 
+                        w: w, 
+                        h: h,
+                        hash: elementHash,
+                        visual_hash: visualHash 
+                    }});
                     processedElements.add(el);
                 }} else {{
                     el.setAttribute('data-scraper-hidden', el.style.opacity || 'none');
