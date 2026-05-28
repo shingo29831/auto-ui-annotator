@@ -18,15 +18,19 @@ VIEWPORT_HEIGHT = 720
 TIMEOUT_MS = 15000
 MAX_RETRIES = 3
 
-# なぜ: RPA自動化やクリック率分析に向けて、ユーザーが干渉可能なUI要素をより細分化して学習させるため
+# なぜ: 形状が異なる要素を同じクラスに混ぜるとYOLOの精度が下がるため、タイプ別に細分化して定義
 CLASSES = {
     "button": 0,
-    "input": 1,
-    "image": 2,
-    "logo": 3,
-    "icon": 4,
-    "link": 5,
-    "toggle": 6
+    "text_input": 1,
+    "checkbox": 2,
+    "radio": 3,
+    "select": 4,
+    "slider": 5,
+    "switch": 6,
+    "image": 7,
+    "logo": 8,
+    "icon": 9,
+    "link": 10
 }
 
 os.makedirs(OUTPUT_IMG_DIR, exist_ok=True)

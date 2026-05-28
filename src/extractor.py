@@ -2,7 +2,7 @@
 from src.config import CLASSES
 
 def extract_elements(page):
-    # なぜ: 拡張されたUIクラス(リンク、トグル、アイコン等)の座標を網羅的に抽出し、YOLO形式で返すため
+    # なぜ: 細分化されたUIクラスの座標を網羅的に抽出し、YOLO形式で返すため
     return page.evaluate(f"""() => {{
         const data = [];
         
@@ -41,23 +41,28 @@ def extract_elements(page):
             }}
         }};
 
-        // 0: Button
-        document.querySelectorAll('button, a.btn, [role="button"], input[type="submit"], input[type="button"]').forEach(el => pushRect(el, {CLASSES['button']}));
+        document.querySelectorAll('button, a.btn, [role="button"], input[type="submit"], input[type="button"], input[type="reset"]').forEach(el => pushRect(el, {CLASSES['button']}));
         
-        // 1: Input
-        document.querySelectorAll('input:not([type="submit"]):not([type="button"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea, select').forEach(el => pushRect(el, {CLASSES['input']}));
+        document.querySelectorAll('input:not([type="submit"]):not([type="button"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="reset"]), textarea').forEach(el => pushRect(el, {CLASSES['text_input']}));
         
-        // 2: Image
+        document.querySelectorAll('input[type="checkbox"], [role="checkbox"]').forEach(el => pushRect(el, {CLASSES['checkbox']}));
+        
+        document.querySelectorAll('input[type="radio"], [role="radio"]').forEach(el => pushRect(el, {CLASSES['radio']}));
+        
+        document.querySelectorAll('select, [role="combobox"], [role="listbox"]').forEach(el => pushRect(el, {CLASSES['select']}));
+        
+        document.querySelectorAll('input[type="range"], [role="slider"]').forEach(el => pushRect(el, {CLASSES['slider']}));
+        
+        document.querySelectorAll('[role="switch"]').forEach(el => pushRect(el, {CLASSES['switch']}));
+        
         document.querySelectorAll('img:not([class*="logo" i])').forEach(el => pushRect(el, {CLASSES['image']}));
         
-        // 3: Logo (なぜ: ヘッダー内の画像/SVG、またはクラス名にlogoを含むものをブランドロゴとして抽出するため)
         document.querySelectorAll('header svg, header img, [class*="logo" i]').forEach(el => {{
             if (el.tagName.toLowerCase() === 'svg' || el.tagName.toLowerCase() === 'img') {{
                 pushRect(el, {CLASSES['logo']});
             }}
         }});
         
-        // 4: Icon (なぜ: Logo以外の機能的なSVGアイコンをRPA操作対象として分離するため)
         document.querySelectorAll('svg').forEach(el => {{
             const closestHeader = el.closest('header');
             const classes = typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '';
@@ -66,11 +71,7 @@ def extract_elements(page):
             }}
         }});
         
-        // 5: Link (なぜ: ボタン形状ではないナビゲーション用のテキストリンクを抽出するため)
         document.querySelectorAll('a[href]:not(.btn):not([role="button"])').forEach(el => pushRect(el, {CLASSES['link']}));
-        
-        // 6: Toggle (なぜ: モダンSPAで多用されるaria-role実装のスイッチやラジオボタンを抽出するため)
-        document.querySelectorAll('[role="switch"], [role="radio"], [role="checkbox"], input[type="radio"], input[type="checkbox"]').forEach(el => pushRect(el, {CLASSES['toggle']}));
 
         return data;
     }}""")
