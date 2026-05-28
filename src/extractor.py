@@ -2,7 +2,7 @@
 from src.config import CLASSES
 
 def extract_elements(page):
-    # なぜ: 画面分割方式に合わせて、現在のビューポート(画面)内にある要素のみをクリッピングしてYOLO座標を計算するため
+    # なぜ: 画面に完全に入っている要素のみを抽出し、見切れている要素は画像から消去して誤学習を防ぐため
     return page.evaluate(f"""() => {{
         const data = [];
         const vw = window.innerWidth;
@@ -11,32 +11,23 @@ def extract_elements(page):
         const pushRect = (el, classId) => {{
             const rect = el.getBoundingClientRect();
             
-            // 現在のビューポート内に見えているか判定（完全に見切れているものは除外）
+            // 画面内に「少しでも」入っているか判定
             if (rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw) {{
                 
-                // 画面外にはみ出している部分はクリッピング（切り落とし）する
-                const visibleLeft = Math.max(0, rect.left);
-                const visibleTop = Math.max(0, rect.top);
-                const visibleRight = Math.min(vw, rect.right);
-                const visibleBottom = Math.min(vh, rect.bottom);
-                
-                const visibleWidth = visibleRight - visibleLeft;
-                const visibleHeight = visibleBottom - visibleTop;
+                // 完全に見えているか判定 (1pxの余裕を持たせて丸め誤差を吸収)
+                const isFullyVisible = rect.top >= -1 && rect.left >= -1 && rect.bottom <= vh + 1 && rect.right <= vw + 1;
 
-                // あまりにも小さい見切れ要素(5px未満)はノイズになるため除外
-                if (visibleWidth >= 5 && visibleHeight >= 5) {{
-                    // YOLO正規化座標 (ビューポート相対座標)
-                    const x_center = (visibleLeft + visibleWidth / 2) / vw;
-                    const y_center = (visibleTop + visibleHeight / 2) / vh;
-                    const w = visibleWidth / vw;
-                    const h = visibleHeight / vh;
+                if (isFullyVisible) {{
+                    const x_center = (rect.left + rect.width / 2) / vw;
+                    const y_center = (rect.top + rect.height / 2) / vh;
+                    const w = rect.width / vw;
+                    const h = rect.height / vh;
                     
                     const tag = el.tagName || '';
                     const classes = typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '';
                     const text = (el.textContent || '').trim().substring(0, 50);
                     const src = el.src || '';
                     const type = el.type || '';
-                    // ハッシュ生成には元のサイズを使用（見切れによるハッシュ変化を防ぐため）
                     const origW = Math.round(rect.width);
                     const origH = Math.round(rect.height);
                     const elementHash = `${{tag}}|${{classes}}|${{origW}}x${{origH}}|${{text}}|${{src}}|${{type}}`;
@@ -49,6 +40,10 @@ def extract_elements(page):
                         h: h,
                         hash: elementHash
                     }});
+                }} else {{
+                    // なぜ: 見切れている要素が画像に写り込み、背景として誤学習されるのを防ぐため透明化する
+                    el.setAttribute('data-scraper-hidden', el.style.opacity || 'none');
+                    el.style.opacity = '0';
                 }}
             }}
         }};
@@ -80,3 +75,17 @@ def extract_elements(page):
 
         return data;
     }}""")
+
+def restore_hidden_elements(page):
+    # なぜ: 次の画面スクロール処理に影響を与えないよう、透明化した要素を元の状態に復元するため
+    page.evaluate("""() => {
+        document.querySelectorAll('[data-scraper-hidden]').forEach(el => {
+            const originalOpacity = el.getAttribute('data-scraper-hidden');
+            if (originalOpacity === 'none') {
+                el.style.opacity = '';
+            } else {
+                el.style.opacity = originalOpacity;
+            }
+            el.removeAttribute('data-scraper-hidden');
+        });
+    }""")

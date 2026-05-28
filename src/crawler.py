@@ -4,13 +4,13 @@ import time
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from src.config import VIEWPORT_WIDTH, VIEWPORT_HEIGHT, OUTPUT_IMG_DIR, OUTPUT_LBL_DIR, TIMEOUT_MS, MAX_RETRIES
-from src.extractor import extract_elements
+from src.extractor import extract_elements, restore_hidden_elements
 from src.url_manager import UrlManager
 
 def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
     queue = [start_url]
     page_count = 0
-    seen_element_hashes = set() # なぜ: サイト内で重複するUI要素を記録し過学習を防ぐため
+    seen_element_hashes = set() 
 
     with sync_playwright() as p:
         browser = p.firefox.launch(headless=True)
@@ -32,7 +32,6 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                 try:
                     page.goto(current_url, wait_until="networkidle")
                     
-                    # なぜ: 動的コンテンツや遅延読み込み画像を確実に描画させるため、一度最下部までスクロールする
                     page.evaluate("""() => {
                         return new Promise((resolve) => {
                             let totalHeight = 0;
@@ -50,7 +49,6 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                     }""")
                     page.wait_for_timeout(1000)
                     
-                    # なぜ: スクリーンショットにOSのスクロールバーが写り込んでノイズになるのを防ぐため
                     page.add_style_tag(content="::-webkit-scrollbar { display: none !important; } * { scrollbar-width: none !important; }")
                     
                     total_height = page.evaluate("document.body.scrollHeight")
@@ -80,7 +78,6 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                             raw_elements = extract_elements(page)
                             has_new_elements = False
                             
-                            # なぜ: 今回の画面にサイト内で未学習の「新規要素」が含まれているかだけを判定する
                             for el in raw_elements:
                                 theme_hash = f"{theme}|{el['hash']}"
                                 if theme_hash not in seen_element_hashes:
@@ -95,15 +92,17 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                                 
                                 page.screenshot(path=img_path, type="jpeg", quality=90, full_page=False)
                                 
-                                # なぜ: 画像に写っているのにラベルが無い「False Negative(背景誤認)」の学習を防ぐため、重複要素(固定ヘッダー等)も含めて全要素を出力する
                                 with open(lbl_path, "w", encoding="utf-8") as f:
                                     for el in raw_elements:
                                         f.write(f"{el['class_id']} {el['x']:.6f} {el['y']:.6f} {el['w']:.6f} {el['h']:.6f}\n")
                                         
-                                print(f"  -> [{theme} 領域{screen_index}] {len(raw_elements)} 個の要素を抽出 (新規要素あり)")
+                                print(f"  -> [{theme} 領域{screen_index}] {len(raw_elements)} 個の要素を抽出 (完全表示のみ)")
                             
-                            # なぜ: 画面境界で半分見切れたボタンが、次の画面で完全な状態で拾えるように少し重ねて(オーバーラップ)スクロールする
-                            overlap = 100
+                            # なぜ: スクリーンショット撮影後、透明化した見切れ要素を元の状態に復元する
+                            restore_hidden_elements(page)
+                            
+                            # なぜ: 今回見切れて透明にされた要素が、次のスクロール先で完全に表示されるようオーバーラップを200pxと大きめに取る
+                            overlap = 200
                             current_y += (VIEWPORT_HEIGHT - overlap)
                             screen_index += 1
                             
