@@ -18,30 +18,16 @@ VIEWPORT_HEIGHT = 720
 TIMEOUT_MS = 15000
 MAX_RETRIES = 3
 
-# なぜ: 多種多様なUIコンポーネントを網羅的に学習・分析できるようにするため
 CLASSES = {
-    "button": 0,
-    "text_input": 1,
-    "checkbox": 2,
-    "radio": 3,
-    "select": 4,
-    "slider": 5,
-    "switch": 6,
-    "image": 7,
-    "logo": 8,
-    "icon": 9,
-    "link": 10,
-    "tab": 11,
-    "table": 12,
-    "spinner": 13,
-    "badge": 14,
-    "heading": 15,
-    "modal": 16,
-    "tooltip": 17,
-    "breadcrumb": 18,
-    "pagination": 19,
-    "video": 20,
-    "iframe": 21
+    "button": 0, "text_input": 1, "checkbox": 2, "radio": 3, 
+    "select": 4, "slider": 5, "switch": 6, "image": 7, 
+    "logo": 8, "icon": 9, "link": 10, "tab": 11, 
+    "table": 12, "spinner": 13, "badge": 14, "heading": 15, 
+    "modal": 16, "tooltip": 17, "breadcrumb": 18, "pagination": 19, 
+    "video": 20, "iframe": 21, 
+    # 新規追加クラス
+    "datepicker": 22, "alert": 23, "accordion": 24, 
+    "dropdown": 25, "avatar": 26, "chart": 27
 }
 
 os.makedirs(OUTPUT_IMG_DIR, exist_ok=True)
