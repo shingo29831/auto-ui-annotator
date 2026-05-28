@@ -76,15 +76,21 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                             page.wait_for_timeout(500)
                             
                             raw_elements = extract_elements(page)
-                            has_new_elements = False
+                            
+                            # なぜ: 新規要素と重複要素の数をそれぞれカウントして分析しやすくするため
+                            new_count = 0
+                            duplicate_count = 0
                             
                             for el in raw_elements:
                                 theme_hash = f"{theme}|{el['hash']}"
                                 if theme_hash not in seen_element_hashes:
-                                    has_new_elements = True
+                                    new_count += 1
                                     seen_element_hashes.add(theme_hash)
+                                else:
+                                    duplicate_count += 1
                             
-                            if has_new_elements:
+                            # なぜ: その画面に1つでも新規要素があれば保存を実行する
+                            if new_count > 0:
                                 timestamp = int(time.time() * 1000)
                                 base_filename = f"scraped_{timestamp}_{theme}_{page_count:05d}_{screen_index:02d}"
                                 img_path = os.path.join(OUTPUT_IMG_DIR, f"{base_filename}.jpg")
@@ -96,12 +102,10 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                                     for el in raw_elements:
                                         f.write(f"{el['class_id']} {el['x']:.6f} {el['y']:.6f} {el['w']:.6f} {el['h']:.6f}\n")
                                         
-                                print(f"  -> [{theme} 領域{screen_index}] {len(raw_elements)} 個の要素を抽出 (完全表示のみ)")
+                                print(f"  -> [{theme} 領域{screen_index}] 計 {len(raw_elements)} 個の要素を抽出 (新規: {new_count} / 重複: {duplicate_count})")
                             
-                            # なぜ: スクリーンショット撮影後、透明化した見切れ要素を元の状態に復元する
                             restore_hidden_elements(page)
                             
-                            # なぜ: 今回見切れて透明にされた要素が、次のスクロール先で完全に表示されるようオーバーラップを200pxと大きめに取る
                             overlap = 200
                             current_y += (VIEWPORT_HEIGHT - overlap)
                             screen_index += 1
