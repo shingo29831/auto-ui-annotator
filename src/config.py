@@ -12,16 +12,16 @@ OUTPUT_LBL_DIR = os.getenv('OUTPUT_LBL_DIR', 'datasets/auto_scraped/labels/train
 TARGET_URLS_FILE = "target_urls.txt"
 VISITED_URLS_FILE = "visited_urls.txt"
 
-MAX_PAGES_TO_SCRAPE = 100
 VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 720
 TIMEOUT_MS = 15000
 MAX_RETRIES = 3
 
-# なぜ: メモリ消費を抑えつつ効率よく収集するため、同時実行するサイト数を制御する
 MAX_CONCURRENT_SITES = int(os.getenv('MAX_CONCURRENT_SITES', 3))
-# なぜ: 頻出クラスの過学習を防ぐため、この上限に達したクラス「のみ」で構成される画面は自動的に破棄される
 BALANCER_TARGET_LIMIT = int(os.getenv('BALANCER_TARGET_LIMIT', 5000))
+
+# なぜ: 同一サイトからの過剰な収集を防ぎ「浅く広く」学習させるため、ドメインごとのページ上限を絞る
+MAX_PAGES_PER_DOMAIN = int(os.getenv('MAX_PAGES_PER_DOMAIN', 10))
 
 CLASSES = {
     "button": 0, "text_input": 1, "checkbox": 2, "radio": 3, 

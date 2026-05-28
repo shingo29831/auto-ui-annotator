@@ -1,29 +1,32 @@
 # AI-ROLE: ページ遷移、スクロール、スクリーンショット保存などのブラウザ操作を統括するモジュール(非同期版)
 import os
 import time
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from src.config import VIEWPORT_WIDTH, VIEWPORT_HEIGHT, OUTPUT_IMG_DIR, OUTPUT_LBL_DIR, TIMEOUT_MS, MAX_RETRIES
 from src.extractor import extract_elements, restore_hidden_elements
 from src.url_manager import UrlManager
 from src.balancer import DatasetBalancer
 
-# なぜ: mainから渡されたブラウザコンテキストを使い回すことで、メモリ消費を抑えつつ高速に並列実行するため
-async def crawl_site(start_url: str, url_manager: UrlManager, balancer: DatasetBalancer, context, max_pages: int):
+async def crawl_site(start_url: str, url_manager: UrlManager, balancer: DatasetBalancer, context):
     queue = [start_url]
-    page_count = 0
     seen_element_hashes = set() 
 
     page = await context.new_page()
     page.set_default_timeout(TIMEOUT_MS)
 
-    while queue and page_count < max_pages:
+    while queue:
         current_url = queue.pop(0)
         
         if url_manager.is_visited(current_url):
             continue
             
-        page_count += 1
+        # なぜ: キューに残っていても、並行ワーカー等によってドメイン上限に達していた場合は即座に破棄するため
+        if not url_manager.can_visit_domain(current_url):
+            domain = urlparse(current_url).netloc
+            print(f"[Worker] スキップ: {domain} はドメインごとの収集上限に達しました")
+            continue
+            
         print(f"[Worker] 処理中: {current_url}")
         
         success = False
@@ -83,10 +86,9 @@ async def crawl_site(start_url: str, url_manager: UrlManager, balancer: DatasetB
                                 seen_element_hashes.add(el['hash'])
                         
                         if has_new_in_site:
-                            # なぜ: バランサーに問い合わせて、過剰な頻出要素だけの画面を間引くため
                             if balancer.should_keep(raw_elements):
                                 timestamp = int(time.time() * 1000)
-                                base_filename = f"scraped_{timestamp}_{theme}_{page_count:05d}_{screen_index:02d}"
+                                base_filename = f"scraped_{timestamp}_{theme}_{screen_index:02d}"
                                 img_path = os.path.join(OUTPUT_IMG_DIR, f"{base_filename}.jpg")
                                 lbl_path = os.path.join(OUTPUT_LBL_DIR, f"{base_filename}.txt")
                                 
@@ -112,11 +114,16 @@ async def crawl_site(start_url: str, url_manager: UrlManager, balancer: DatasetB
 
                 url_manager.mark_as_visited(current_url)
                 
-                hrefs = await page.evaluate("() => Array.from(document.querySelectorAll('a[href]')).map(a => a.href)")
-                for href in hrefs:
-                    full_url = urljoin(current_url, href)
-                    if url_manager.is_valid_url(start_url, full_url) and not url_manager.is_visited(full_url):
-                        queue.append(full_url)
+                # なぜ: まだドメイン上限に達していない場合のみ、次のリンクをキューに追加する
+                if url_manager.can_visit_domain(start_url):
+                    hrefs = await page.evaluate("() => Array.from(document.querySelectorAll('a[href]')).map(a => a.href)")
+                    for href in hrefs:
+                        full_url = urljoin(current_url, href)
+                        if url_manager.is_valid_url(start_url, full_url) and not url_manager.is_visited(full_url):
+                            queue.append(full_url)
+                else:
+                    print(f"[Worker] {urlparse(start_url).netloc} のドメイン上限到達により、内部リンクの追跡を停止します")
+                    queue.clear()
                         
                 success = True
                 break 

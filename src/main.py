@@ -2,35 +2,39 @@
 import asyncio
 import sys
 from playwright.async_api import async_playwright
-from src.config import TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_TO_SCRAPE, MAX_CONCURRENT_SITES, BALANCER_TARGET_LIMIT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT
+from src.config import TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_PER_DOMAIN, MAX_CONCURRENT_SITES, BALANCER_TARGET_LIMIT, VIEWPORT_WIDTH, VIEWPORT_HEIGHT
 from src.url_manager import UrlManager
 from src.balancer import DatasetBalancer
 from src.crawler import crawl_site
 
 async def worker(worker_id: int, queue: asyncio.Queue, url_manager: UrlManager, balancer: DatasetBalancer, context):
-    # なぜ: 監視ループからQueueに積まれたURLを並列で取り出し、継続的に処理する非同期コンシューマー
     while True:
         url = await queue.get()
+        # なぜ: 監視プロセスのキューに追加されてから実際に処理が始まる間に、別ワーカーによってドメイン上限に達する可能性があるため最終確認する
+        if not url_manager.can_visit_domain(url):
+            print(f"[Worker-{worker_id}] スキップ: {url} (ドメイン上限到達済み)")
+            queue.task_done()
+            continue
+
         print(f"\n[Worker-{worker_id}] 新しいターゲットのスクレイピングを開始: {url}")
         try:
-            await crawl_site(url, url_manager, balancer, context, MAX_PAGES_TO_SCRAPE)
+            await crawl_site(url, url_manager, balancer, context)
         except Exception as e:
             print(f"[Worker-{worker_id}] 予期せぬエラー: {e}")
         finally:
             queue.task_done()
 
 async def async_main():
-    url_manager = UrlManager(TARGET_URLS_FILE, VISITED_URLS_FILE)
+    url_manager = UrlManager(TARGET_URLS_FILE, VISITED_URLS_FILE, MAX_PAGES_PER_DOMAIN)
     balancer = DatasetBalancer(BALANCER_TARGET_LIMIT)
     queue = asyncio.Queue()
     enqueued_urls = set()
     
-    print(f"=== 非同期並列スクレイピング監視を開始します (並列数: {MAX_CONCURRENT_SITES}) ===")
+    print(f"=== 非同期並列スクレイピング監視を開始します (並列数: {MAX_CONCURRENT_SITES}, 1ドメイン最大: {MAX_PAGES_PER_DOMAIN}ページ) ===")
     print(f"ヒント: 実行中に {TARGET_URLS_FILE} へ新しいURLを追記すると自動検知します。\n終了時は Ctrl+C を押してください。")
     
     async with async_playwright() as p:
         browser = await p.firefox.launch(headless=True)
-        # なぜ: 単一のブラウザコンテキストを複数のワーカーで共有し、メモリ消費を抑えつつ高速化を図るため
         context = await browser.new_context(viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT})
         
         workers = [
@@ -39,11 +43,10 @@ async def async_main():
         ]
         
         try:
-            # なぜ: target_urls.txt の変更をリアルタイムで検知し Queue に供給するプロデューサー
             while True:
                 target_urls = url_manager.load_target_urls()
                 for url in target_urls:
-                    if url not in enqueued_urls and not url_manager.is_visited(url):
+                    if url not in enqueued_urls and not url_manager.is_visited(url) and url_manager.can_visit_domain(url):
                         await queue.put(url)
                         enqueued_urls.add(url)
                 
