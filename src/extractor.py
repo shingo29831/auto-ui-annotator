@@ -1,21 +1,30 @@
 # AI-ROLE: ブラウザ上のDOMから指定されたUI要素の座標を抽出し、YOLO形式に変換するモジュール
-from src.config import CLASSES, VIEWPORT_WIDTH, VIEWPORT_HEIGHT
+from src.config import CLASSES
 
 def extract_elements(page):
-    # なぜ: JS側で各要素をカテゴリ分けし、YOLOのクラスIDと要素の一意なハッシュ、座標を返すため
+    # なぜ: JS側で各要素をカテゴリ分けし、ページ全体に対するYOLOのクラスIDと一意なハッシュ、座標を返すため
     return page.evaluate(f"""() => {{
         const data = [];
+        
+        // なぜ: フルページスクリーンショットの画像サイズとYOLO座標の分母を一致させるため
+        const pageWidth = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth);
+        const pageHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+        
         const pushRect = (el, classId) => {{
             const rect = el.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.left >= 0) {{
-                const x_center = (rect.x + rect.width / 2) / {VIEWPORT_WIDTH};
-                const y_center = (rect.y + rect.height / 2) / {VIEWPORT_HEIGHT};
-                const width = rect.width / {VIEWPORT_WIDTH};
-                const height = rect.height / {VIEWPORT_HEIGHT};
+            // なぜ: スクロールで見切れている要素も取得するため top >= 0 などの条件を削除し、表示の有無のみ判定
+            if (rect.width > 0 && rect.height > 0) {{
+                // viewport相対座標からページ全体の絶対座標へ変換
+                const absoluteX = rect.x + window.scrollX;
+                const absoluteY = rect.y + window.scrollY;
+                
+                const x_center = (absoluteX + rect.width / 2) / pageWidth;
+                const y_center = (absoluteY + rect.height / 2) / pageHeight;
+                const width = rect.width / pageWidth;
+                const height = rect.height / pageHeight;
                 
                 // なぜ: 同一サイト内の全く同じUI(ヘッダーのボタンなど)を弾くためのハッシュ生成
                 const tag = el.tagName || '';
-                // SVGなどはclassNameがオブジェクトになる場合があるため型を検証
                 const classes = typeof el.className === 'string' ? el.className : '';
                 const text = (el.textContent || '').trim().substring(0, 50);
                 const src = el.src || '';
