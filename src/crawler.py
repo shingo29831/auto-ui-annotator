@@ -77,19 +77,17 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                             
                             raw_elements = extract_elements(page)
                             
-                            # なぜ: 新規要素と重複要素の数をそれぞれカウントして分析しやすくするため
                             new_count = 0
                             duplicate_count = 0
                             
                             for el in raw_elements:
-                                theme_hash = f"{theme}|{el['hash']}"
-                                if theme_hash not in seen_element_hashes:
+                                # なぜ: テーマ間でハッシュが一致する要素を排除し、過学習を防ぐため
+                                if el['hash'] not in seen_element_hashes:
                                     new_count += 1
-                                    seen_element_hashes.add(theme_hash)
+                                    seen_element_hashes.add(el['hash'])
                                 else:
                                     duplicate_count += 1
                             
-                            # なぜ: その画面に1つでも新規要素があれば保存を実行する
                             if new_count > 0:
                                 timestamp = int(time.time() * 1000)
                                 base_filename = f"scraped_{timestamp}_{theme}_{page_count:05d}_{screen_index:02d}"
