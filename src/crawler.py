@@ -42,7 +42,7 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                                 totalHeight += distance;
                                 if(totalHeight >= document.body.scrollHeight){
                                     clearInterval(timer);
-                                    window.scrollTo(0, 0); // 上部に戻す
+                                    window.scrollTo(0, 0); 
                                     resolve();
                                 }
                             }, 100);
@@ -73,39 +73,40 @@ def crawl_site(start_url: str, url_manager: UrlManager, max_pages: int):
                         current_y = 0
                         screen_index = 0
                         
-                        # なぜ: 32767pxの画像上限エラーを防ぎ、YOLOのアスペクト比を維持するため、画面(ビューポート)単位で区切って取得する
                         while current_y < total_height:
                             page.evaluate(f"window.scrollTo(0, {current_y})")
-                            page.wait_for_timeout(500) # スクロールのアニメーションや固定ヘッダーの安定を待機
+                            page.wait_for_timeout(500)
                             
                             raw_elements = extract_elements(page)
-                            unique_elements = []
+                            has_new_elements = False
                             
+                            # なぜ: 今回の画面にサイト内で未学習の「新規要素」が含まれているかだけを判定する
                             for el in raw_elements:
                                 theme_hash = f"{theme}|{el['hash']}"
                                 if theme_hash not in seen_element_hashes:
-                                    unique_elements.append(el)
+                                    has_new_elements = True
                                     seen_element_hashes.add(theme_hash)
                             
-                            if len(unique_elements) > 0:
+                            if has_new_elements:
                                 timestamp = int(time.time() * 1000)
                                 base_filename = f"scraped_{timestamp}_{theme}_{page_count:05d}_{screen_index:02d}"
                                 img_path = os.path.join(OUTPUT_IMG_DIR, f"{base_filename}.jpg")
                                 lbl_path = os.path.join(OUTPUT_LBL_DIR, f"{base_filename}.txt")
                                 
-                                # なぜ: full_page=Falseにより、現在見えているビューポートのみを安全に撮影する
                                 page.screenshot(path=img_path, type="jpeg", quality=90, full_page=False)
                                 
+                                # なぜ: 画像に写っているのにラベルが無い「False Negative(背景誤認)」の学習を防ぐため、重複要素(固定ヘッダー等)も含めて全要素を出力する
                                 with open(lbl_path, "w", encoding="utf-8") as f:
-                                    for el in unique_elements:
+                                    for el in raw_elements:
                                         f.write(f"{el['class_id']} {el['x']:.6f} {el['y']:.6f} {el['w']:.6f} {el['h']:.6f}\n")
                                         
-                                print(f"  -> [{theme} 領域{screen_index}] {len(unique_elements)} 個の新規要素を抽出")
+                                print(f"  -> [{theme} 領域{screen_index}] {len(raw_elements)} 個の要素を抽出 (新規要素あり)")
                             
-                            current_y += VIEWPORT_HEIGHT
+                            # なぜ: 画面境界で半分見切れたボタンが、次の画面で完全な状態で拾えるように少し重ねて(オーバーラップ)スクロールする
+                            overlap = 100
+                            current_y += (VIEWPORT_HEIGHT - overlap)
                             screen_index += 1
                             
-                            # なぜ: 無限スクロールのバグ等による無限ループを強制遮断するため(上限50画面)
                             if screen_index > 50:
                                 break
 
