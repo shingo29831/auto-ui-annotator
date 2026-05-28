@@ -1,2 +1,15 @@
 https://tailwindcss.com/docs/button
 https://the-internet.herokuapp.com/
+https://mui.com/material-ui/all-components/
+https://ant.design/components/overview/
+https://ui.shadcn.com/docs/components/accordion
+https://chakra-ui.com/docs/components
+https://getbootstrap.jp/docs/5.3/components/buttons/
+https://www.freee.co.jp/
+https://smarthr.jp/
+https://backlog.com/ja/
+https://kintone.jp/
+https://tracker.gg/valorant
+https://myanimelist.net/
+https://www.animatetimes.com/
+https://store.steampowered.com/
