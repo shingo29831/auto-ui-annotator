@@ -18,16 +18,19 @@ VIEWPORT_HEIGHT = 720
 TIMEOUT_MS = 15000
 MAX_RETRIES = 3
 
+# なぜ: メモリ消費を抑えつつ効率よく収集するため、同時実行するサイト数を制御する
+MAX_CONCURRENT_SITES = int(os.getenv('MAX_CONCURRENT_SITES', 3))
+# なぜ: 頻出クラスの過学習を防ぐため、この上限に達したクラス「のみ」で構成される画面は自動的に破棄される
+BALANCER_TARGET_LIMIT = int(os.getenv('BALANCER_TARGET_LIMIT', 5000))
+
 CLASSES = {
     "button": 0, "text_input": 1, "checkbox": 2, "radio": 3, 
     "select": 4, "slider": 5, "switch": 6, "image": 7, 
     "logo": 8, "icon": 9, "link": 10, "tab": 11, 
     "table": 12, "spinner": 13, "badge": 14, "heading": 15, 
     "modal": 16, "tooltip": 17, "breadcrumb": 18, "pagination": 19, 
-    "video": 20, "iframe": 21, 
-    # 新規追加クラス
-    "datepicker": 22, "alert": 23, "accordion": 24, 
-    "dropdown": 25, "avatar": 26, "chart": 27
+    "video": 20, "iframe": 21, "datepicker": 22, "alert": 23, 
+    "accordion": 24, "dropdown": 25, "avatar": 26, "chart": 27
 }
 
 os.makedirs(OUTPUT_IMG_DIR, exist_ok=True)
