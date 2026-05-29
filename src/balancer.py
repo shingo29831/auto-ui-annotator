@@ -1,128 +1,61 @@
-# AI-ROLE: ブラウザ上のDOMから指定されたUI要素の座標を抽出し、YOLO形式に変換するモジュール(非同期版)
+# AI-ROLE: データセット全体の多様性（視覚的特徴）と、ドメインごとのクラス分布を管理し、取得判定を行うモジュール
 from src.config import CLASSES
 
-async def extract_elements(page):
-    return await page.evaluate(f"""() => {{
-        const data = [];
-        const processedElements = new Set();
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        
-        const pushRect = (el, classId) => {{
-            if (processedElements.has(el)) return;
+class DatasetBalancer:
+    def __init__(self, global_visual_counts: dict):
+        self.global_visual_counts = global_visual_counts
+        self.domain_class_counts = {class_id: 0 for class_id in CLASSES.values()}
+        self.domain_total_elements = 0
+
+    def should_keep(self, elements: list) -> bool:
+        if not elements:
+            return False
             
-            const rect = el.getBoundingClientRect();
-            if (rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw) {{
-                const isFullyVisible = rect.top >= -1 && rect.left >= -1 && rect.bottom <= vh + 1 && rect.right <= vw + 1;
+        if self.domain_total_elements < 150:
+            return True
 
-                if (isFullyVisible) {{
-                    const x_center = (rect.left + rect.width / 2) / vw;
-                    const y_center = (rect.top + rect.height / 2) / vh;
-                    const w = rect.width / vw;
-                    const h = rect.height / vh;
-                    
-                    const tag = el.tagName || '';
-                    const classes = typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '';
-                    const text = (el.textContent || '').trim().substring(0, 50);
-                    const src = el.src || '';
-                    const type = el.type || '';
-                    const origW = Math.round(rect.width);
-                    const origH = Math.round(rect.height);
-                    const elementHash = `${{tag}}|${{classes}}|${{origW}}x${{origH}}|${{text}}|${{src}}|${{type}}`;
+        total_in_page = len(elements)
+        avg_count = self.domain_total_elements / len(CLASSES)
+        if avg_count < 5:
+            avg_count = 5
+            
+        rare_threshold = avg_count * 0.5
+        common_threshold = avg_count * 1.5
 
-                    // なぜ: 今まで収集した要素と「見た目が大きく違うか」を判定するため、色とサイズを丸めて(量子化)視覚的特徴ハッシュを生成する
-                    const computed = window.getComputedStyle(el);
-                    
-                    const quantizeColor = (colorStr) => {{
-                        const match = colorStr.match(/\d+/g);
-                        if (!match || match.length < 3) return 'transparent';
-                        // なぜ: RGB成分を大まかに丸める(32刻み)ことで、わずかな色の違い(近しい色)を同一視し、大きく違う色をレア要素として分類するため
-                        const r = Math.round(parseInt(match[0]) / 32) * 32;
-                        const g = Math.round(parseInt(match[1]) / 32) * 32;
-                        const b = Math.round(parseInt(match[2]) / 32) * 32;
-                        return `${{r}},${{g}},${{b}}`;
-                    }};
-                    
-                    const bgColor = quantizeColor(computed.backgroundColor);
-                    const textColor = quantizeColor(computed.color);
-                    // なぜ: 10pxの誤差などは「近しい形状」として同一視するため、サイズを20px単位で丸める
-                    const approxW = Math.round(origW / 20) * 20;
-                    const approxH = Math.round(origH / 20) * 20;
-                    
-                    const visualHash = `${{classId}}|${{bgColor}}|${{textColor}}|${{approxW}}x${{approxH}}`;
+        rare_count = 0
+        common_count = 0
 
-                    data.push({{ 
-                        class_id: classId, 
-                        x: x_center, 
-                        y: y_center, 
-                        w: w, 
-                        h: h,
-                        hash: elementHash,
-                        visual_hash: visualHash 
-                    }});
-                    processedElements.add(el);
-                }} else {{
-                    el.setAttribute('data-scraper-hidden', el.style.opacity || 'none');
-                    el.style.opacity = '0';
-                }}
-            }}
-        }};
+        for el in elements:
+            # 視覚的新規性チェック (グローバル辞書を参照)
+            v_hash = el.get('visual_hash', '')
+            if self.global_visual_counts.get(v_hash, 0) < 5:
+                return True
 
-        document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"], [class*="modal" i]').forEach(el => pushRect(el, {CLASSES['modal']}));
-        document.querySelectorAll('[role="alert"], [role="status"], [class*="toast" i], [class*="alert" i]').forEach(el => pushRect(el, {CLASSES['alert']}));
-        document.querySelectorAll('[role="menu"], [class*="dropdown-menu" i]').forEach(el => pushRect(el, {CLASSES['dropdown']}));
-        document.querySelectorAll('[role="tooltip"], [class*="tooltip" i], [class*="popover" i]').forEach(el => pushRect(el, {CLASSES['tooltip']}));
-        document.querySelectorAll('details, [class*="accordion" i]').forEach(el => pushRect(el, {CLASSES['accordion']}));
-        document.querySelectorAll('nav[aria-label*="breadcrumb" i], [class*="breadcrumb" i]').forEach(el => pushRect(el, {CLASSES['breadcrumb']}));
-        document.querySelectorAll('nav[aria-label*="pagination" i], [class*="pagination" i]').forEach(el => pushRect(el, {CLASSES['pagination']}));
-        document.querySelectorAll('[role="tab"], .tab, [class*="tab-" i]').forEach(el => pushRect(el, {CLASSES['tab']}));
-        
-        document.querySelectorAll('canvas, [class*="chart" i], [class*="graph" i]').forEach(el => pushRect(el, {CLASSES['chart']}));
-        document.querySelectorAll('table, [role="grid"], [role="treegrid"]').forEach(el => pushRect(el, {CLASSES['table']}));
-        document.querySelectorAll('progress, [role="progressbar"], [class*="spinner" i], [class*="loader" i]').forEach(el => pushRect(el, {CLASSES['spinner']}));
-        document.querySelectorAll('[class*="badge" i]:not(body):not(div:empty), [class*="tag" i], [class*="chip" i]').forEach(el => pushRect(el, {CLASSES['badge']}));
-        document.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]').forEach(el => pushRect(el, {CLASSES['heading']}));
-        
-        document.querySelectorAll('input[type="date"], input[type="time"], input[type="datetime-local"], input[type="month"], input[type="week"]').forEach(el => pushRect(el, {CLASSES['datepicker']}));
-        document.querySelectorAll('[role="switch"]').forEach(el => pushRect(el, {CLASSES['switch']}));
-        document.querySelectorAll('input[type="checkbox"], [role="checkbox"]').forEach(el => pushRect(el, {CLASSES['checkbox']}));
-        document.querySelectorAll('input[type="radio"], [role="radio"]').forEach(el => pushRect(el, {CLASSES['radio']}));
-        document.querySelectorAll('select, [role="combobox"], [role="listbox"]').forEach(el => pushRect(el, {CLASSES['select']}));
-        document.querySelectorAll('input[type="range"], [role="slider"]').forEach(el => pushRect(el, {CLASSES['slider']}));
-        document.querySelectorAll('input:not([type="submit"]):not([type="button"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="reset"]):not([type="date"]):not([type="time"]):not([type="datetime-local"]):not([type="month"]):not([type="week"]), textarea').forEach(el => pushRect(el, {CLASSES['text_input']}));
-        
-        document.querySelectorAll('button, a.btn, [role="button"], input[type="submit"], input[type="button"], input[type="reset"]').forEach(el => pushRect(el, {CLASSES['button']}));
-        document.querySelectorAll('a[href]:not(.btn):not([role="button"])').forEach(el => pushRect(el, {CLASSES['link']}));
-        
-        document.querySelectorAll('img[class*="avatar" i], [class*="avatar" i]').forEach(el => pushRect(el, {CLASSES['avatar']}));
-        document.querySelectorAll('video, [class*="video" i]').forEach(el => pushRect(el, {CLASSES['video']}));
-        document.querySelectorAll('iframe').forEach(el => pushRect(el, {CLASSES['iframe']}));
-        document.querySelectorAll('header svg, header img, [class*="logo" i]').forEach(el => {{
-            if (el.tagName.toLowerCase() === 'svg' || el.tagName.toLowerCase() === 'img') {{
-                pushRect(el, {CLASSES['logo']});
-            }}
-        }});
-        document.querySelectorAll('img:not([class*="logo" i]):not([class*="avatar" i])').forEach(el => pushRect(el, {CLASSES['image']}));
-        document.querySelectorAll('svg').forEach(el => {{
-            const closestHeader = el.closest('header');
-            const classes = typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '';
-            if (!closestHeader && !classes.toLowerCase().includes('logo') && !classes.toLowerCase().includes('avatar')) {{
-                pushRect(el, {CLASSES['icon']});
-            }}
-        }});
+            current = self.domain_class_counts[el['class_id']]
+            if current < rare_threshold:
+                rare_count += 1
+            elif current > common_threshold:
+                common_count += 1
 
-        return data;
-    }}""")
+        if rare_count > 0:
+            return True
+            
+        if (common_count / total_in_page) > 0.8:
+            return False
+            
+        return True
 
-async def restore_hidden_elements(page):
-    await page.evaluate("""() => {
-        document.querySelectorAll('[data-scraper-hidden]').forEach(el => {
-            const originalOpacity = el.getAttribute('data-scraper-hidden');
-            if (originalOpacity === 'none') {
-                el.style.opacity = '';
-            } else {
-                el.style.opacity = originalOpacity;
-            }
-            el.removeAttribute('data-scraper-hidden');
-        });
-    }""")
+    def register(self, elements: list):
+        for el in elements:
+            self.domain_class_counts[el['class_id']] += 1
+            self.domain_total_elements += 1
+            
+            v_hash = el.get('visual_hash', '')
+            self.global_visual_counts[v_hash] = self.global_visual_counts.get(v_hash, 0) + 1
+
+    def get_stats(self) -> str:
+        sorted_counts = sorted(self.domain_class_counts.items(), key=lambda x: x[1])
+        rarest = f"Min(ID{sorted_counts[0][0]}:{sorted_counts[0][1]})"
+        most_common = f"Max(ID{sorted_counts[-1][0]}:{sorted_counts[-1][1]})"
+        total = f"DomainTotal:{self.domain_total_elements}"
+        return f"{total} | {rarest} | {most_common}"
