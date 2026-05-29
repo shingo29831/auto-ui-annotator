@@ -11,6 +11,16 @@ class UrlManager:
         self.domain_counts = {}
         self._load_visited_urls()
         
+    def _get_root_domain(self, domain: str) -> str:
+        if not domain:
+            return ""
+        parts = domain.split('.')
+        if len(parts) > 2 and parts[-2] in ['co', 'ac', 'go', 'or', 'ne', 'com']:
+            return '.'.join(parts[-3:])
+        if len(parts) > 1:
+            return '.'.join(parts[-2:])
+        return domain
+
     def _load_visited_urls(self):
         if not os.path.exists(self.visited_file):
             return
@@ -19,9 +29,11 @@ class UrlManager:
                 clean_url = line.strip()
                 if clean_url:
                     self.visited_urls.add(clean_url)
-                    # なぜ: スクリプト再起動時も過去に収集したドメインの比率を維持して過学習を防ぐため
+                    # なぜ: サブドメインを含めたサイト全体で収集上限を管理し、特定サイトへの過学習を防ぐため
                     domain = urlparse(clean_url).netloc
-                    self.domain_counts[domain] = self.domain_counts.get(domain, 0) + 1
+                    root_domain = self._get_root_domain(domain)
+                    if root_domain:
+                        self.domain_counts[root_domain] = self.domain_counts.get(root_domain, 0) + 1
             
     def load_target_urls(self) -> list:
         if not os.path.exists(self.target_file):
@@ -34,16 +46,20 @@ class UrlManager:
         return clean_url in self.visited_urls
 
     def can_visit_domain(self, url: str) -> bool:
-        # なぜ: 特定のサイトのUIデザインばかりを過剰に学習するのを防ぐため、ドメインごとの上限をチェックする
         domain = urlparse(url).netloc
-        return self.domain_counts.get(domain, 0) < self.max_per_domain
+        root_domain = self._get_root_domain(domain)
+        if not root_domain:
+            return False
+        return self.domain_counts.get(root_domain, 0) < self.max_per_domain
         
     def mark_as_visited(self, url: str):
         clean_url = url.split('#')[0]
         if clean_url not in self.visited_urls:
             self.visited_urls.add(clean_url)
             domain = urlparse(clean_url).netloc
-            self.domain_counts[domain] = self.domain_counts.get(domain, 0) + 1
+            root_domain = self._get_root_domain(domain)
+            if root_domain:
+                self.domain_counts[root_domain] = self.domain_counts.get(root_domain, 0) + 1
             
             with open(self.visited_file, "a", encoding="utf-8") as f:
                 f.write(f"{clean_url}\n")
@@ -51,9 +67,15 @@ class UrlManager:
     def is_valid_url(self, base_url: str, target_url: str) -> bool:
         base_domain = urlparse(base_url).netloc
         target_parsed = urlparse(target_url)
+        target_domain = target_parsed.netloc
         
-        if target_parsed.netloc != base_domain:
+        base_root = self._get_root_domain(base_domain)
+        target_root = self._get_root_domain(target_domain)
+        
+        if not target_root or target_root != base_root:
             return False
+            
         if target_url.lower().endswith(('.pdf', '.png', '.jpg', '.zip')):
             return False
+            
         return target_parsed.scheme in ['http', 'https']
