@@ -34,7 +34,8 @@ async def crawl_site(start_url: str, url_manager: UrlManager, global_visual_coun
         success = False
         for attempt in range(MAX_RETRIES):
             try:
-                await page.goto(current_url, wait_until="networkidle")
+                # なぜ: iframeやトラッキング通信が多いサイトでフリーズするのを防ぐため、networkidleではなくdomcontentloadedを使用する
+                await page.goto(current_url, wait_until="domcontentloaded")
                 
                 # なぜ: Cookie同意バナーなどの固定表示オーバーレイが背後のUI要素の座標取得を妨げるため、要素抽出前に削除する
                 await page.evaluate("""() => {
@@ -54,14 +55,20 @@ async def crawl_site(start_url: str, url_manager: UrlManager, global_visual_coun
                     });
                 }""")
                 
+                # なぜ: 無限スクロールのサイトで永遠に下がり続けるのを防ぐため、最大スクロール回数(maxScrolls)を設ける
                 await page.evaluate("""() => {
                     return new Promise((resolve) => {
                         let totalHeight = 0;
                         const distance = 500;
+                        let scrolls = 0;
+                        const maxScrolls = 100; // 最大50,000pxまで
+                        
                         const timer = setInterval(() => {
                             window.scrollBy(0, distance);
                             totalHeight += distance;
-                            if(totalHeight >= document.body.scrollHeight){
+                            scrolls++;
+                            
+                            if(totalHeight >= document.body.scrollHeight || scrolls >= maxScrolls){
                                 clearInterval(timer);
                                 window.scrollTo(0, 0); 
                                 resolve();
@@ -70,15 +77,18 @@ async def crawl_site(start_url: str, url_manager: UrlManager, global_visual_coun
                     });
                 }""")
                 
-                # なぜ: Lazy load(遅延読み込み)の画像がスクロールによってリクエストされた後、実際の描画が完了するまで待機するため
+                # なぜ: ロードされない画像(非表示のトラッキングピクセルなど)によってPromiseがフリーズするのを防ぐため、5秒のタイムアウトを設ける
                 await page.evaluate("""() => {
-                    return Promise.all(
-                        Array.from(document.images)
-                            .filter(img => !img.complete)
-                            .map(img => new Promise(resolve => {
-                                img.onload = img.onerror = resolve;
-                            }))
-                    );
+                    const imagePromises = Array.from(document.images)
+                        .filter(img => !img.complete)
+                        .map(img => new Promise(resolve => {
+                            img.onload = img.onerror = resolve;
+                        }));
+                        
+                    return Promise.race([
+                        Promise.all(imagePromises),
+                        new Promise(resolve => setTimeout(resolve, 5000))
+                    ]);
                 }""")
                 
                 await page.wait_for_timeout(1000)
