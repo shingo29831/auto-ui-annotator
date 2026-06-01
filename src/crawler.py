@@ -69,6 +69,18 @@ async def crawl_site(start_url: str, url_manager: UrlManager, global_visual_coun
                         }, 100);
                     });
                 }""")
+                
+                # なぜ: Lazy load(遅延読み込み)の画像がスクロールによってリクエストされた後、実際の描画が完了するまで待機するため
+                await page.evaluate("""() => {
+                    return Promise.all(
+                        Array.from(document.images)
+                            .filter(img => !img.complete)
+                            .map(img => new Promise(resolve => {
+                                img.onload = img.onerror = resolve;
+                            }))
+                    );
+                }""")
+                
                 await page.wait_for_timeout(1000)
                 
                 await page.add_style_tag(content="::-webkit-scrollbar { display: none !important; } * { scrollbar-width: none !important; }")

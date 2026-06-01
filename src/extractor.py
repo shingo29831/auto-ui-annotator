@@ -11,6 +11,14 @@ async def extract_elements(page):
         const pushRect = (el, classId) => {{
             if (processedElements.has(el)) return;
             
+            // なぜ: DOMツリーから切り離された要素やnoscript内の解析外要素を排除するため
+            if (!el.isConnected) return;
+            
+            const rect = el.getBoundingClientRect();
+            
+            // なぜ: 極端に小さい要素（トラッキング用iframeや1pxの隠しピクセル）をUI要素として抽出しないため
+            if (rect.width <= 1 || rect.height <= 1) return;
+
             // なぜ: 画像上に実際に描画されない要素(display: none, visibility: hidden等)をデータセットから排除するため
             const computed = window.getComputedStyle(el);
             if (
@@ -23,7 +31,6 @@ async def extract_elements(page):
                 return;
             }}
             
-            const rect = el.getBoundingClientRect();
             if (rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw) {{
                 const isFullyVisible = rect.top >= -1 && rect.left >= -1 && rect.bottom <= vh + 1 && rect.right <= vw + 1;
 
