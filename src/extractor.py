@@ -11,6 +11,18 @@ async def extract_elements(page):
         const pushRect = (el, classId) => {{
             if (processedElements.has(el)) return;
             
+            // なぜ: 画像上に実際に描画されない要素(display: none, visibility: hidden等)をデータセットから排除するため
+            const computed = window.getComputedStyle(el);
+            if (
+                computed.display === 'none' ||
+                computed.visibility === 'hidden' ||
+                computed.opacity === '0' ||
+                el.offsetWidth === 0 ||
+                el.offsetHeight === 0
+            ) {{
+                return;
+            }}
+            
             const rect = el.getBoundingClientRect();
             if (rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw) {{
                 const isFullyVisible = rect.top >= -1 && rect.left >= -1 && rect.bottom <= vh + 1 && rect.right <= vw + 1;
@@ -30,9 +42,6 @@ async def extract_elements(page):
                     const origH = Math.round(rect.height);
                     const elementHash = `${{tag}}|${{classes}}|${{origW}}x${{origH}}|${{text}}|${{src}}|${{type}}`;
 
-                    // なぜ: 今まで収集した要素と「見た目が大きく違うか」を判定するため、色とサイズを丸めて(量子化)視覚的特徴ハッシュを生成する
-                    const computed = window.getComputedStyle(el);
-                    
                     const quantizeColor = (colorStr) => {{
                         const match = colorStr.match(/\d+/g);
                         if (!match || match.length < 3) return 'transparent';
