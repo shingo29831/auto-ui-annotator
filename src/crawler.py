@@ -36,6 +36,24 @@ async def crawl_site(start_url: str, url_manager: UrlManager, global_visual_coun
             try:
                 await page.goto(current_url, wait_until="networkidle")
                 
+                # なぜ: Cookie同意バナーなどの固定表示オーバーレイが背後のUI要素の座標取得を妨げるため、要素抽出前に削除する
+                await page.evaluate("""() => {
+                    const overlaySelectors = [
+                        '[id*="cookie" i]', '[class*="cookie" i]',
+                        '[id*="consent" i]', '[class*="consent" i]',
+                        '[id*="banner" i]', '[class*="banner" i]',
+                        '[id*="gdpr" i]', '[class*="gdpr" i]'
+                    ];
+                    overlaySelectors.forEach(sel => {
+                        document.querySelectorAll(sel).forEach(el => {
+                            const style = window.getComputedStyle(el);
+                            if (style.position === 'fixed' || style.position === 'absolute' || style.position === 'sticky') {
+                                el.remove();
+                            }
+                        });
+                    });
+                }""")
+                
                 await page.evaluate("""() => {
                     return new Promise((resolve) => {
                         let totalHeight = 0;
